@@ -23,6 +23,7 @@ EXCLUDED_DIRS = {
     ".cache", ".pytest_cache", ".git", "dist", "release", ".chrome-profile",
 }
 TEXT_SUFFIXES = {".py", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".md", ".json", ".cmd", ".html", ".css", ".txt", ".example"}
+DOC_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}
 SECRET_NAME = re.compile(r"(?:API_KEY|API_SECRET|APP_ID|PASSWORD|ACCESS_TOKEN|SECRET_KEY)$", re.I)
 
 
@@ -33,7 +34,8 @@ def source_files() -> list[Path]:
             directories[:] = sorted(d for d in directories if d not in EXCLUDED_DIRS)
             for filename in sorted(filenames):
                 path = Path(current) / filename
-                if path.is_symlink() or path.suffix.lower() not in TEXT_SUFFIXES:
+                is_doc_image = name == "docs" and "images" in path.relative_to(ROOT / "docs").parts[:-1] and path.suffix.lower() in DOC_IMAGE_SUFFIXES
+                if path.is_symlink() or (path.suffix.lower() not in TEXT_SUFFIXES and not is_doc_image):
                     continue
                 if filename.startswith(".env") and filename != ".env.example":
                     continue
@@ -74,7 +76,8 @@ def check_credentials(path: Path) -> None:
 def package() -> dict:
     files = source_files()
     for path in files:
-        check_credentials(path)
+        if path.suffix.lower() in TEXT_SUFFIXES:
+            check_credentials(path)
         if path.stat().st_size >= 25 * 1024 * 1024:
             raise RuntimeError(f"Unexpected large source file: {path.relative_to(ROOT)}")
     output = ROOT / "release"

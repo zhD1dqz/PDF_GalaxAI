@@ -36,7 +36,7 @@
 ## 1. 环境要求
 
 - Node.js 20.19+ 或 22.12+
-- Python 3.10+
+- Python 3.11+（首次安装建议使用 3.11 或 3.12）
 - （可选）Ollama（如果使用本地模型）
 - （可选）Gemini API Key（如果使用云端模型）
 - （可选）Tesseract OCR（如果希望对扫描版 / 乱码 PDF 做 OCR 识别，见第 8 节）
@@ -97,7 +97,7 @@ npm install
 
 ### 2.2 macOS
 
-前置要求：Node.js 18+、Python 3.10+（推荐用 Homebrew 装）。
+前置要求：Node.js 20.19+ 或 22.12+、Python 3.11+（首次安装建议使用 3.11 或 3.12）。
 
 ```bash
 # 若尚未安装 Python / Node：
