@@ -86,3 +86,45 @@ canvas {
   background: rgba(250, 204, 21, 0.22);
   border-bottom: 1px solid rgba(245, 158, 11, 0.55);
 }
+
+/* Observatory chrome stays quiet; the data and the selected source lead. */
+.galaxy-header { background: linear-gradient(#02050bea, #02050b80 72%, transparent); }
+.galaxy-footer { background: linear-gradient(transparent, #02050b90 28%, #02050bea); }
+.galaxy-tool {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 9px;
+  border: 1px solid #ffffff0c; border-radius: 8px; background: #08111e88;
+  color: #94a3b8; font-size: 10px; transition: color .2s, background .2s;
+}
+.galaxy-tool:hover { color: #e2e8f0; background: #132137bb; }
+.galaxy-file-label {
+  pointer-events: auto; position: absolute; height: 24px; display: flex;
+  align-items: center; gap: 6px; padding: 3px 7px; border-radius: 5px;
+  color: #c0cbdccc; background: #02071288; border: 1px solid transparent;
+  font-size: 10px; text-align: left; text-shadow: 0 1px 3px #000;
+  transition: left .09s linear, top .09s linear, color .25s, background .25s, border-color .25s;
+}
+.galaxy-file-label.is-active { color: #f1f5f9; background: #07101deb; border-color: color-mix(in srgb, var(--topic-color) 30%, transparent); }
+.galaxy-file-label.is-source { border-left: 2px solid var(--topic-color); }
+.galaxy-file-dot { width: 3px; height: 3px; flex-shrink: 0; border-radius: 50%; background: var(--topic-color); opacity: .6; }
+.galaxy-topic-label {
+  position: absolute; transform: translate(-50%, -50%); pointer-events: auto;
+  display: flex; gap: 8px; align-items: center; max-width: 190px; padding: 6px 9px;
+  border-radius: 20px; background: #040a1477; color: #c3ccdc; font-size: 11px;
+  border: 1px solid #ffffff09; letter-spacing: .02em; backdrop-filter: blur(6px);
+}
+.galaxy-topic-label:hover { color: white; border-color: color-mix(in srgb, var(--topic-color) 35%, transparent); }
+.galaxy-topic-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--topic-color); flex-shrink: 0; }
+.galaxy-cluster-chip, .galaxy-source-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px;
+  border: 1px solid #ffffff0b; border-radius: 7px; color: #94a3b8;
+  font-size: 10px; background: #08101b99; transition: border-color .2s, color .2s;
+}
+.galaxy-cluster-chip:hover, .galaxy-cluster-chip.is-active, .galaxy-source-chip:hover {
+  color: #e2e8f0; border-color: color-mix(in srgb, var(--topic-color) 40%, transparent);
+}
+.galaxy-source-chip { border-left: 2px solid var(--topic-color); }
+button:focus-visible { outline: 1px solid #a5c9ee; outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  .galaxy-file-label, .galaxy-tool { transition: none; }
+  .animate-pulse, .animate-bounce { animation: none; }
+}

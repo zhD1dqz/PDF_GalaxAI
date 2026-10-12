@@ -13,6 +13,7 @@ API 路由层。
 
 import re
 import os
+import hashlib
 from typing import Any
 
 import numpy as np
@@ -23,7 +24,7 @@ from pydantic import BaseModel
 from sklearn.metrics.pairwise import cosine_similarity
 
 from clustering import fallback_pos
-from config import FILES_DIR
+from config import FILES_DIR, ROOT
 from llm_client import call_llm, encode_image_to_base64, is_vision_capable, test_connection
 from models_registry import ModelsRegistry
 from text_processing import safe_stem
@@ -341,7 +342,14 @@ def create_app(store) -> FastAPI:
 
     @app.get("/api/health")
     def api_health() -> dict[str, Any]:
-        return {"ok": True}
+        # No paths or credentials are exposed; launchers can reject a different
+        # project occupying the expected port. Uvicorn serves this after startup.
+        workspace = str(ROOT.parent.resolve()).replace("\\", "/").lower().rstrip("/")
+        return {
+            "ok": True,
+            "app": "PDF_GalaxAI",
+            "workspace_id": hashlib.sha256(workspace.encode("utf-8")).hexdigest()[:16],
+        }
 
     @app.get("/api/llm/status")
     def api_llm_status() -> dict[str, Any]:

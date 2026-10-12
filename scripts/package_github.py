@@ -15,7 +15,7 @@ ROOT_FILES = (
     ".gitignore", "README.md", "README.zh-CN.md", "GRAPHICS_RESEARCH.md",
     "package.json", "package-lock.json", "tsconfig.json", "vite.config.ts",
     "tailwind.config.cjs", "postcss.config.cjs", "index.html", "index.css",
-    "index.tsx", "PDF_GalaxAI.cmd", "GRAPHICS_DEMO.cmd", "test_upload_pdf.py",
+    "index.tsx", "PDF_GalaxAI.cmd", "test_upload_pdf.py",
 )
 SOURCE_DIRS = ("frontend", "backend", "tests", "scripts", "docs")
 EXCLUDED_DIRS = {
@@ -39,7 +39,7 @@ def source_files() -> list[Path]:
                     continue
                 if filename.startswith(".env") and filename != ".env.example":
                     continue
-                if name == "tests" and path.suffix != ".py":
+                if name == "tests" and path.suffix not in {".py", ".cjs", ".mjs"}:
                     continue
                 files.append(path)
     result = sorted(set(files))

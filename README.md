@@ -2,9 +2,9 @@
 
 ### Semantic Literature Galaxy & RAG Workspace
 
-[简体中文](README.zh-CN.md) · [User guide](docs/USER_GUIDE.md) · [Graphics methods](GRAPHICS_RESEARCH.md)
+[Chinese version](README.zh-CN.md) · [User guide (Chinese)](docs/USER_GUIDE.md) · [Graphics methods (Chinese)](GRAPHICS_RESEARCH.md)
 
-PDF_GalaxAI turns a PDF library into an interactive three-dimensional knowledge space. Each document becomes a rotating, procedurally shaded planet. Semantic topic clusters form animated volumetric nebulae, while similarity links reveal relationships between papers.
+PDF_GalaxAI turns a PDF library into an interactive three-dimensional knowledge space. Each document becomes a luminous single-color sphere with a surface-adjacent, exponentially fading halo. Semantic topic clusters form flowing dust ribbons, surrounded by orbiting star bands and an independent drifting background star field. Weighted similarity links reveal relationships between papers.
 
 The project combines real-time computer graphics with document processing and retrieval-augmented generation (RAG). Users can explore topics spatially, select evidence papers, and continue reading or asking questions with citations back to the original PDF.
 
@@ -14,7 +14,9 @@ This repository contains a locally run web application. The full application use
 
 ## Interface overview
 
-![PDF_GalaxAI main workspace with the semantic knowledge galaxy and retrieval console](docs/images/interface-overview.png)
+![Current PDF_GalaxAI workspace with four topic nebulae, glowing paper nodes, background stars and the retrieval console](docs/images/interface-overview.png)
+
+Current interface, captured on October 12, 2026 with a local collection of 24 PDFs, four topic clusters and 60 semantic links. The screenshot shows luminous paper nodes, flowing cloud structures, peripheral star bands, scattered background stars and the backend connection indicator. This document collection is not included in the source download.
 
 The main workspace places the semantic knowledge galaxy beside the retrieval and chat console. Topic-grouped paper nodes and similarity links support collection exploration, while the console provides contextual questions and a visible model choice. Selecting a paper connects this overview to paper details and PDF reading.
 
@@ -23,13 +25,13 @@ The main workspace places the semantic knowledge galaxy beside the retrieval and
 | Feature | What it helps you do |
 | --- | --- |
 | PDF library and processing | Upload or batch-import documents, extract text and metadata, and maintain a local vector index. Optional OCR and MinerU support difficult PDFs. |
-| 3D semantic knowledge galaxy | Explore topic groups, select paper nodes and inspect similarity links across the collection. |
+| 3D semantic knowledge galaxy | Explore luminous paper nodes, data-oriented clouds, orbiting star bands and independently drifting background stars; move between overview, topic and paper close-ups. |
 | Contextual AI questions | Attach a paper to a question and choose Adaptive, Paper Q&A or General Chat mode. Use Ollama, Gemini or an OpenAI-compatible provider. |
-| Source evidence | Inspect retrieved passages and follow citations to candidate PDF pages. Verify the answer against the original text. |
+| Source evidence | Real returned citations progressively illuminate their planets and remain highlighted. Click a source to fly to its planet, then open the original passage. |
 | PDF reading | Open a paper in the reader, ask questions about it and highlight candidate source text. Image-capable models also accept questions about screenshots of formulas or figures. |
-| Interface controls | Switch between English and Chinese, search filenames and choose a rendering quality mode. |
+| Interface controls | Switch languages and quality, search filenames, toggle full/compact labels, and fold the Q&A panel for an unobstructed view. |
 
-The galaxy uses custom GLSL volume rendering, GPU particle animation and procedural planet surfaces. Its visual encodings approximate semantic structure rather than scientific quality. See [graphics methods](GRAPHICS_RESEARCH.md) for implementation details.
+The galaxy combines custom GLSL volume rendering, GPU particle animation, self-emissive sphere shading and HDR Bloom. Surface-adjacent halos fade in brightness, opacity and saturation toward their outer edge; breathing changes the glow field rather than scaling the sphere. Topic star bands orbit their clouds, while a separate background population gently drifts and twinkles without attraction to any cluster. Cloud orientation follows the paper distribution, and decorative animation does not move document coordinates. These are artistic rendering effects, not a gravitational simulation or a measure of scientific quality. See [graphics methods](GRAPHICS_RESEARCH.md) and [redesign notes](docs/NEBULA_REDESIGN.md).
 
 ## Download the project
 
@@ -84,7 +86,7 @@ npm ci
 npm run demo
 ```
 
-Open `http://localhost:3000/?graphicsDemo=1` if the browser does not open automatically. On Windows, `GRAPHICS_DEMO.cmd` starts the same demo.
+Open `http://localhost:3000/?graphicsDemo=1` if the browser does not open automatically. If the complete application is already running, use that URL without starting another frontend. The Windows `PDF_GalaxAI.cmd` launcher opens the full application and real document library, not this synthetic demo.
 
 Demo nodes are synthetic visual examples. Reading real PDFs and using RAG require the full setup below.
 
@@ -161,7 +163,7 @@ npm run dev
 
 Open `http://localhost:3000/`, or use the address printed by Vite if it chooses another available port. Check `http://127.0.0.1:8000/api/health` to confirm that the backend responds. API documentation is available at `http://127.0.0.1:8000/docs`.
 
-After installing dependencies, Windows users can also double-click `PDF_GalaxAI.cmd`. It uses the project virtual environment when available. Initial imports and model downloads may take longer than the launcher delay.
+After installing dependencies, Windows users can double-click `PDF_GalaxAI.cmd`. It prefers the project virtual environment, starts the backend, waits for readiness, starts/reuses the frontend, verifies its API proxy, and opens the real library. Repeated launches reuse this project's services; unrelated occupied ports are reported without stopping other processes. Logs are kept under `logs/`.
 
 ### 4. Check your first document workflow
 
@@ -171,7 +173,7 @@ After installing dependencies, Windows users can also double-click `PDF_GalaxAI.
 4. Review retrieved source snippets and follow a citation into the PDF reader. Page matching is heuristic, so check the original text yourself.
 5. If the application reports an embedding-model mismatch, rebuild the vector index using the interface control. New uploads normally use incremental indexing.
 
-For the manual two-terminal setup, press **Ctrl+C** in each terminal to stop the application. With the Windows launcher, stop both service windows. PDFs and indexes remain in `backend/data/` for subsequent runs.
+For the manual two-terminal setup, press **Ctrl+C** in each terminal. Launcher-created services run in the background; closing the launcher does not stop them. Their specific PIDs are recorded in `logs/launcher-processes.json` for inspection in Task Manager. Reused manually started services still belong to their original terminal. PDFs and indexes remain in `backend/data/`.
 
 ### Optional parsing tools
 
@@ -193,6 +195,11 @@ These instructions run the application on your own computer. GitHub hosts the so
 | Locate a paper | Filename search |
 | Change rendering cost | Low / High quality toggle |
 | Change interface language | Chinese / English selector |
+| Explore a topic | Click a floating topic label or a bottom topic chip |
+| Return to a wider view | Overview/topic breadcrumbs or the back arrow |
+| Control filenames | All filenames / Compact toggle; full filenames remain available in tooltips |
+| Expand the canvas | Fold the Q&A console with the speech-bubble button |
+| Follow an answer's source | Click a citation: camera arrival precedes opening the PDF |
 
 Upload through the interface, or place named PDFs in `backend/data/files/` or `backend/data/inbox/` before starting the backend. Named source PDFs in `files` remain in place. Imported `inbox` files move into `inbox/_processed/`.
 
@@ -217,7 +224,7 @@ flowchart LR
 | Layer | Main technologies |
 | --- | --- |
 | Interface | React, TypeScript, Vite, Tailwind CSS |
-| Graphics | Three.js, React Three Fiber, custom GLSL, Bloom |
+| Graphics | Three.js, React Three Fiber, GLSL volume rendering and GPU star fields, HDR Bloom |
 | Document processing | FastAPI, PyMuPDF, optional Tesseract and MinerU |
 | Semantic analysis | Sentence Transformers, KMeans, UMAP/PCA, TF-IDF fallback |
 | Retrieval and Q&A | Chroma, hybrid reranking, Ollama, Gemini, OpenAI-compatible APIs |
@@ -249,7 +256,8 @@ The recovery script imports local PDFs, recomputes the layout and preserves unav
 | --- | --- |
 | `node`, `npm`, `python` or `python3` is not found | Install the required runtime, check PATH and open a new terminal. Use the correct Python command for your platform. |
 | Python reports a missing module | Install `backend/requirements.txt` with the same `.venv` Python executable used to start the backend. |
-| The page reports that the backend is unavailable | Keep terminal A running and check `http://127.0.0.1:8000/api/health`. The Vite proxy expects the backend on port 8000. |
+| The page reports that the backend is unavailable | For manual startup, keep terminal A running; for the Windows launcher, inspect `logs/`. Check `http://127.0.0.1:8000/api/health` and the canvas connection indicator. The Vite proxy expects the backend on port 8000. |
+| The launcher reports an occupied port | Identify the program using port 3000 or 8000 and resolve the conflict yourself. The launcher reuses this project's services but does not stop unrelated programs. |
 | The galaxy is empty after startup | Upload your own PDFs. Downloaded source does not include the screenshot's document collection. For synthetic examples, use `npm run demo`. |
 | The first startup or upload appears slow | Check the backend log for embedding-model downloads or PDF processing. Model weights are not bundled with the source. |
 | Q&A fails or has no source evidence | Verify the selected provider's connection and model availability. Upload relevant PDFs and resolve any embedding-index warning. General Chat mode does not retrieve document evidence. |
@@ -265,11 +273,13 @@ For further diagnosis, retain the backend error log and browser-console error. S
 
 ```bash
 npm run typecheck
+npm run test:graphics
+npm run test:launcher
 npm run build
 python tests/test_layout_recovery.py
 ```
 
-The regression suite covers model path resolution, import deduplication, fallback layouts, node separation and configurable topic counts. It does not require downloaded model weights or user PDFs.
+The regression checks cover graphics data and layout logic, halo falloff, independent star drift, launcher readiness and service reuse, model path resolution, import deduplication and configurable topic counts. They do not require downloaded model weights or user PDFs. Logic checks do not replace browser shader compilation, visual review or GPU performance benchmarks.
 
 `tests/verify_live_library.py` is an optional integration check for the local 24-PDF test library, with both services running. See [test data](docs/TEST_DATA.md).
 
@@ -284,19 +294,19 @@ The archive appears in `release/`. See [GitHub upload instructions](docs/GITHUB_
 ## Repository structure
 
 ```text
-frontend/src/rendering/    GLSL nebulae, particles, planets and demo data
+frontend/src/rendering/    GLSL nebulae, glowing planets, two star layers and demo data
 frontend/src/ui/           Galaxy interaction, PDF reader and chat
 frontend/src/api/          Backend client
 backend/                  PDF processing, semantic layout, indexing and APIs
 backend/.env.example      Public configuration template
 tests/                    Regression and local integration checks
-scripts/                  Source packaging
-docs/                     Usage, test data and GitHub upload instructions
+scripts/                  Full-application launcher and source packaging
+docs/                     Usage, interface screenshot, test data and upload instructions
 ```
 
 ## Scope and limitations
 
-This is a working visualization and RAG prototype. The volumetric nebula and glow shaders are artistic approximations. Planet appearance includes stable identity variation, and does not encode a paper's scientific quality.
+This is a working visualization and RAG prototype. Volumetric clouds, glow and decorative star motion are artistic approximations, not physical simulations. Pure-color planets use topic colors and stable per-document animation parameters; their appearance does not encode a paper's scientific quality. Background stars are decorative and do not represent additional documents.
 
 Topic labels and three-dimensional distances approximate semantic relationships. A fixed cluster count sets the desired level of detail rather than proving an intrinsic number of topics. RAG answers need checking against their cited sources. Formal user studies and large-scale rendering benchmarks remain future work.
 

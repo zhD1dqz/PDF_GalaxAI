@@ -12,6 +12,9 @@
     "build": "vite build --configLoader runner",
     "typecheck": "tsc --noEmit",
     "test:backend": "python tests/test_layout_recovery.py",
+    "test:graphics": "node --test tests/test_graphics.cjs",
+    "test:launcher": "node --test tests/test_launcher.mjs",
+    "start": "node scripts/launch.mjs",
     "package:github": "python scripts/package_github.py",
     "preview": "vite preview"
   },

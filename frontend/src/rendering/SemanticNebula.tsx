@@ -1,21 +1,14 @@
 import { useFrame, useThree } from '@react-three/fiber';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
+import { stableUnit, type SemanticCluster } from './galaxyModel';
+import { createPeripheralStars } from './peripheralStars';
 
-export type SemanticCluster = {
-  id: number;
-  center: [number, number, number];
-  radius: number;
-  color: string;
-  density: number;
-  paperCount: number;
-};
-
+export type { SemanticCluster } from './galaxyModel';
 export type GraphicsQuality = 'balanced' | 'research';
 
 const VOLUME_VERTEX_SHADER = /* glsl */ `
   varying vec3 vLocalPosition;
-
   void main() {
     vLocalPosition = position;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -24,349 +17,184 @@ const VOLUME_VERTEX_SHADER = /* glsl */ `
 
 const VOLUME_FRAGMENT_SHADER = /* glsl */ `
   precision highp float;
-
   varying vec3 vLocalPosition;
-  uniform float uTime;
-  uniform float uDensity;
-  uniform float uSeed;
-  uniform float uSteps;
-  uniform vec3 uColor;
-  uniform vec3 uAccent;
-  uniform vec3 uCameraLocal;
-
+  uniform float uTime, uDensity, uSeed, uSteps, uMorphology, uVisibility;
+  uniform vec3 uColor, uAccent, uCameraLocal;
   float hash31(vec3 p) {
     p = fract(p * 0.1031);
     p += dot(p, p.yzx + 33.33);
     return fract((p.x + p.y) * p.z);
   }
-
-  float valueNoise(vec3 p) {
-    vec3 i = floor(p);
-    vec3 f = fract(p);
+  float noise3(vec3 p) {
+    vec3 i = floor(p), f = fract(p);
     f = f * f * (3.0 - 2.0 * f);
-
-    float n000 = hash31(i + vec3(0.0, 0.0, 0.0));
-    float n100 = hash31(i + vec3(1.0, 0.0, 0.0));
-    float n010 = hash31(i + vec3(0.0, 1.0, 0.0));
-    float n110 = hash31(i + vec3(1.0, 1.0, 0.0));
-    float n001 = hash31(i + vec3(0.0, 0.0, 1.0));
-    float n101 = hash31(i + vec3(1.0, 0.0, 1.0));
-    float n011 = hash31(i + vec3(0.0, 1.0, 1.0));
-    float n111 = hash31(i + vec3(1.0, 1.0, 1.0));
-
-    float nx00 = mix(n000, n100, f.x);
-    float nx10 = mix(n010, n110, f.x);
-    float nx01 = mix(n001, n101, f.x);
-    float nx11 = mix(n011, n111, f.x);
-    return mix(mix(nx00, nx10, f.y), mix(nx01, nx11, f.y), f.z);
+    return mix(
+      mix(mix(hash31(i), hash31(i + vec3(1,0,0)), f.x),
+          mix(hash31(i + vec3(0,1,0)), hash31(i + vec3(1,1,0)), f.x), f.y),
+      mix(mix(hash31(i + vec3(0,0,1)), hash31(i + vec3(1,0,1)), f.x),
+          mix(hash31(i + vec3(0,1,1)), hash31(i + vec3(1,1,1)), f.x), f.y), f.z);
   }
-
   float fbm(vec3 p) {
-    float value = 0.0;
-    float amplitude = 0.52;
-    mat3 rotation = mat3(
-      0.00,  0.80,  0.60,
-     -0.80,  0.36, -0.48,
-     -0.60, -0.48,  0.64
-    );
-    for (int octave = 0; octave < 4; octave++) {
-      value += valueNoise(p) * amplitude;
-      p = rotation * p * 2.03 + 0.17;
-      amplitude *= 0.5;
+    float v = 0.0, a = 0.52;
+    mat3 turn = mat3(0.0,0.8,0.6,-0.8,0.36,-0.48,-0.6,-0.48,0.64);
+    for (int i = 0; i < 3; i++) {
+      v += noise3(p) * a;
+      p = turn * p * 2.03 + 0.17;
+      a *= 0.48;
     }
-    return value;
+    return v;
   }
-
   void main() {
-    // Render the back faces of the bounding sphere and integrate toward the camera.
-    // This is a compact object-space ray marcher: every visible pixel samples a
-    // procedural 3D density field instead of reading a flat texture.
-    vec3 rayDirection = normalize(uCameraLocal - vLocalPosition);
-    vec3 samplePosition = vLocalPosition;
-    vec4 accumulated = vec4(0.0);
-    float travelStep = 2.05 / max(uSteps, 1.0);
-
+    // Analytic ray/sphere interval also handles a camera inside the volume.
+    vec3 rd = normalize(vLocalPosition - uCameraLocal);
+    float b = dot(uCameraLocal, rd);
+    float discriminant = b*b - dot(uCameraLocal,uCameraLocal) + 1.0;
+    if (discriminant <= 0.0) discard;
+    float root = sqrt(discriminant);
+    float entry = max(0.0, -b - root), exitPoint = -b + root;
+    float dt = (exitPoint - entry) / uSteps;
+    vec4 acc = vec4(0.0);
     for (int i = 0; i < 48; i++) {
       if (float(i) >= uSteps) break;
-      samplePosition += rayDirection * travelStep;
-      float radius = length(samplePosition);
-      if (radius > 1.02 && i > 2) break;
-
-      // Let the volume drift with the same slow orbital rhythm as the semantic
-      // particles. The two sinusoidal warps keep the cloud alive without making
-      // the data positions themselves unstable.
-      float flowAngle = uTime * 0.075 + uSeed;
-      mat2 flowRotation = mat2(
-        cos(flowAngle), -sin(flowAngle),
-        sin(flowAngle), cos(flowAngle)
-      );
-      vec3 flowingPosition = samplePosition;
-      flowingPosition.xz = flowRotation * flowingPosition.xz;
-      flowingPosition += vec3(
-        sin(uTime * 0.16 + samplePosition.y * 2.4 + uSeed),
-        cos(uTime * 0.11 + samplePosition.x * 2.0 + uSeed) * 0.65,
-        sin(uTime * 0.13 + samplePosition.z * 2.2 + uSeed) * 0.72
-      ) * 0.16;
-      vec3 flow = vec3(
-        sin(uTime * 0.09 + uSeed),
-        uTime * 0.065,
-        cos(uTime * 0.075 + uSeed)
-      );
-      float cloud = fbm(flowingPosition * 2.95 + flow + uSeed * 0.31);
-      float ridge = 1.0 - abs(cloud * 2.0 - 1.0);
-      float radialFalloff = 1.0 - smoothstep(0.08, 1.0, radius);
-      float filament = smoothstep(0.48, 0.91, ridge);
-      float breathing = 0.82 + sin(uTime * 0.34 + uSeed * 2.0) * 0.08;
-      float density = filament * radialFalloff * uDensity * 0.032 * breathing;
-
-      // Keep the cloud below the bloom threshold. It should read as a moving
-      // background structure; local node rings now carry the visual emphasis.
-      vec3 sampleColor = mix(uColor * 0.16, uAccent * 0.46, cloud);
-      sampleColor += uColor * pow(max(0.0, 1.0 - radius), 3.0) * 0.12;
-      accumulated.rgb += (1.0 - accumulated.a) * sampleColor * density;
-      accumulated.a += (1.0 - accumulated.a) * density;
-      if (accumulated.a > 0.52) break;
+      vec3 p = uCameraLocal + rd * (entry + (float(i) + 0.5) * dt);
+      vec3 drift = vec3(uTime*0.012, -uTime*0.009, uTime*0.006);
+      vec3 q = p + (vec3(
+        noise3(p*2.4 + drift + uSeed),
+        noise3(p*2.4 - drift + uSeed + 17.0),
+        noise3(p*2.4 + drift + uSeed + 31.0)) - 0.5) * 0.34;
+      float bend = sin(q.x*3.2 + uSeed)*0.16;
+      float ribbon = exp(-pow(q.y - bend,2.0)*9.0 - q.x*q.x*2.4 - q.z*q.z*4.0);
+      float fork = exp(-pow(q.y + bend + 0.19,2.0)*19.0 - q.x*q.x*3.0 - q.z*q.z*5.0);
+      float lobes = exp(-dot(q-vec3(-0.30,0.16,0), q-vec3(-0.30,0.16,0))*7.0)
+                  + exp(-dot(q-vec3(0.30,-0.12,0.08), q-vec3(0.30,-0.12,0.08))*8.0)*0.7;
+      float shape = uMorphology < 0.5 ? ribbon + fork*0.45
+        : uMorphology < 1.5 ? lobes : ribbon*0.65 + lobes*0.45;
+      float boundary = 1.0 - smoothstep(0.62,1.0,length(p));
+      if (shape*boundary < 0.012) continue;
+      float n = fbm(q*4.5 + drift + uSeed);
+      float fine = noise3(q*9.0 - drift + uSeed*0.4);
+      float filaments = smoothstep(0.31,0.70,n) * (0.55 + fine*0.65);
+      float lane = exp(-pow(q.y-bend+0.05,2.0)*180.0) * smoothstep(0.42,0.72,fine);
+      // A continuous low-frequency mist under the filaments makes the volume
+      // visible without turning its brightest parts into flat white blobs.
+      float density = shape * (0.14+filaments*0.94) * (1.0-lane*0.72) * boundary * uDensity;
+      float alpha = (1.0-exp(-density*dt*1.65))*uVisibility;
+      vec3 sampleColor = mix(uColor*0.34,uAccent*0.68,smoothstep(0.40,0.72,n));
+      acc.rgb += (1.0-acc.a) * alpha * sampleColor;
+      acc.a += (1.0-acc.a) * alpha;
+      if (acc.a > 0.88) break;
     }
-
-    float edgeFade = smoothstep(
-      0.02,
-      0.42,
-      abs(dot(normalize(vLocalPosition), rayDirection))
-    );
-    gl_FragColor = vec4(accumulated.rgb, accumulated.a * edgeFade * 0.42);
+    // Normal blending expects straight alpha, not premultiplied RGB.
+    gl_FragColor = vec4(acc.rgb/max(acc.a,0.0001), acc.a*0.70);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
   }
 `;
 
 const PARTICLE_VERTEX_SHADER = /* glsl */ `
-  precision highp float;
-
-  attribute vec3 aCenter;
-  attribute vec3 aColor;
-  attribute float aPhase;
-  attribute float aSpeed;
-  attribute float aSize;
-  uniform float uTime;
-  uniform float uPixelRatio;
-  varying vec3 vColor;
+  attribute float aPhase, aSize, aSpeed;
+  uniform float uTime, uPixelRatio, uVisibility;
+  uniform vec3 uColor;
   varying float vEnergy;
-
   void main() {
-    vec3 offset = position - aCenter;
-    float radius = length(offset.xz) + 0.001;
-    float angle = uTime * (0.035 + aSpeed * 0.095) + aPhase;
-    float c = cos(angle);
-    float s = sin(angle);
-    vec2 rotated = mat2(c, -s, s, c) * offset.xz;
-
-    vec3 animated = aCenter + vec3(rotated.x, offset.y, rotated.y);
-    animated.y += sin(uTime * 0.22 + aPhase * 3.0 + radius) * 0.12;
-    animated.xz += normalize(rotated + vec2(0.001))
-      * sin(uTime * 0.12 + aPhase) * 0.055;
-
-    vec4 mvPosition = modelViewMatrix * vec4(animated, 1.0);
-    gl_Position = projectionMatrix * mvPosition;
-    gl_PointSize = min(5.0, aSize * uPixelRatio * (130.0 / max(5.0, -mvPosition.z)));
-    vColor = aColor;
-    vEnergy = 0.65 + 0.35 * sin(uTime * 0.8 + aPhase * 5.0);
+    // Restore continuous orbital motion, rather than barely visible jitter.
+    // XY ellipses follow the cloud axes and keep the cloud's center clear.
+    float angle = uTime*aSpeed;
+    mat2 orbit = mat2(cos(angle),-sin(angle),sin(angle),cos(angle));
+    vec2 rotated = orbit*position.xy;
+    rotated *= 1.0+sin(uTime*0.16+aPhase)*0.015;
+    vec3 animated = vec3(rotated,position.z+sin(uTime*0.20+aPhase)*0.035);
+    vec4 mv = modelViewMatrix*vec4(animated,1.0);
+    gl_Position = projectionMatrix*mv;
+    gl_PointSize = clamp(aSize*uPixelRatio*100.0/max(3.0,-mv.z),1.6,4.6);
+    // A tilted orbital ellipse can project across the cloud center. Fade those
+    // projections too, so rotating the camera doesn't reintroduce central dots.
+    vec4 centerClip = projectionMatrix*modelViewMatrix*vec4(0.0,0.0,0.0,1.0);
+    vec4 xClip = projectionMatrix*modelViewMatrix*vec4(1.0,0.0,0.0,1.0);
+    vec4 yClip = projectionMatrix*modelViewMatrix*vec4(0.0,1.0,0.0,1.0);
+    vec2 centerNdc = centerClip.xy/max(abs(centerClip.w),0.001);
+    float extent = max(length(xClip.xy/max(abs(xClip.w),0.001)-centerNdc),
+                       length(yClip.xy/max(abs(yClip.w),0.001)-centerNdc));
+    float projectedRadius = length(gl_Position.xy/max(abs(gl_Position.w),0.001)-centerNdc)/max(extent,0.001);
+    float clearCore = smoothstep(0.38,0.68,projectedRadius)*step(0.05,centerClip.w);
+    vEnergy = (0.82+sin(uTime*0.65+aPhase)*0.16)*uVisibility*clearCore;
   }
 `;
-
 const PARTICLE_FRAGMENT_SHADER = /* glsl */ `
-  precision highp float;
-
-  varying vec3 vColor;
+  uniform vec3 uColor;
   varying float vEnergy;
-
   void main() {
-    vec2 centered = gl_PointCoord - vec2(0.5);
-    float distanceToCenter = length(centered);
-    if (distanceToCenter > 0.5) discard;
-    float core = smoothstep(0.5, 0.0, distanceToCenter);
-    float halo = pow(core, 2.2);
-    gl_FragColor = vec4(vColor * (0.52 + halo * 0.95), core * vEnergy * 0.42);
+    float r = length(gl_PointCoord-0.5)*2.0;
+    if (r>1.0) discard;
+    float core = exp(-r*r*7.0);
+    float halo = exp(-r*r*2.8)*(1.0-smoothstep(0.65,1.0,r));
+    vec3 color = mix(uColor,vec3(0.92,0.97,1.0),core*0.74);
+    gl_FragColor = vec4(color,(core*0.66+halo*0.24)*vEnergy);
+    #include <colorspace_fragment>
   }
 `;
 
-function seededUnit(seed: number): number {
-  const x = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
-  return x - Math.floor(x);
-}
-
-function RayMarchedCluster({
-  cluster,
-  quality,
-}: {
-  cluster: SemanticCluster;
-  quality: GraphicsQuality;
-}) {
-  const meshRef = useRef<THREE.Mesh>(null);
-  const materialRef = useRef<THREE.ShaderMaterial>(null);
+function Cloud({ cluster, quality, visibility }: { cluster: SemanticCluster; quality: GraphicsQuality; visibility: number }) {
+  const mesh = useRef<THREE.Mesh>(null);
+  const material = useRef<THREE.ShaderMaterial>(null);
   const { camera } = useThree();
-  const color = useMemo(() => new THREE.Color(cluster.color), [cluster.color]);
-  const accent = useMemo(
-    () => color.clone().offsetHSL(0.06, 0.08, 0.24),
-    [color],
-  );
-  const uniforms = useMemo(
-    () => ({
-      uTime: { value: 0 },
-      uDensity: { value: cluster.density },
-      uSeed: { value: cluster.id * 1.731 + 0.37 },
-      uSteps: { value: quality === 'research' ? 46 : 28 },
-      uColor: { value: color },
-      uAccent: { value: accent },
+  const uniforms = useMemo(() => {
+    const color = new THREE.Color(cluster.color).offsetHSL(0,-0.22,-0.02);
+    return {
+      uTime: { value: 0 }, uSeed: { value: stableUnit(String(cluster.id),13)*20 },
+      uDensity: { value: cluster.density }, uSteps: { value: quality === 'research' ? 46 : 28 },
+      uMorphology: { value: cluster.morphology }, uVisibility: { value: visibility },
+      uColor: { value: color }, uAccent: { value: color.clone().lerp(new THREE.Color('#b8c9df'),0.42) },
       uCameraLocal: { value: new THREE.Vector3() },
-    }),
-    [accent, cluster.density, cluster.id, color, quality],
-  );
-
-  useFrame(({ clock }) => {
-    if (!materialRef.current || !meshRef.current) return;
-    const time = clock.elapsedTime;
-    materialRef.current.uniforms.uTime.value = time;
-    materialRef.current.uniforms.uCameraLocal.value.copy(camera.position);
-    meshRef.current.worldToLocal(materialRef.current.uniforms.uCameraLocal.value);
-    meshRef.current.rotation.y = time * (0.018 + seededUnit(cluster.id + 21) * 0.012);
-    meshRef.current.rotation.z = Math.sin(time * 0.07 + cluster.id) * 0.055;
-    meshRef.current.position.y = cluster.center[1]
-      + Math.sin(time * 0.15 + cluster.id * 1.7) * 0.09;
+    };
+  }, [cluster, quality]);
+  useFrame(({ clock }, delta) => {
+    if (!mesh.current || !material.current) return;
+    material.current.uniforms.uTime.value = clock.elapsedTime;
+    material.current.uniforms.uVisibility.value = THREE.MathUtils.damp(material.current.uniforms.uVisibility.value,visibility,3,delta);
+    mesh.current.updateWorldMatrix(true,false);
+    material.current.uniforms.uCameraLocal.value.copy(camera.position);
+    mesh.current.worldToLocal(material.current.uniforms.uCameraLocal.value);
   });
-
-  const stretch = 0.74 + seededUnit(cluster.id + 9) * 0.34;
-
-  return (
-    <mesh
-      ref={meshRef}
-      position={cluster.center}
-      scale={[cluster.radius * 1.35, cluster.radius * stretch, cluster.radius * 1.18]}
-      renderOrder={-2}
-    >
-      <sphereGeometry args={[1, quality === 'research' ? 48 : 28, quality === 'research' ? 32 : 20]} />
-      <shaderMaterial
-        ref={materialRef}
-        uniforms={uniforms}
-        vertexShader={VOLUME_VERTEX_SHADER}
-        fragmentShader={VOLUME_FRAGMENT_SHADER}
-        side={THREE.BackSide}
-        transparent
-        depthWrite={false}
-        blending={THREE.NormalBlending}
-        toneMapped
-      />
-    </mesh>
-  );
+  return <mesh ref={mesh} position={cluster.center} rotation={[0,0,cluster.angle]} scale={cluster.axes} renderOrder={-3}>
+    <sphereGeometry args={[1,32,24]} />
+    <shaderMaterial ref={material} uniforms={uniforms} vertexShader={VOLUME_VERTEX_SHADER} fragmentShader={VOLUME_FRAGMENT_SHADER}
+      side={THREE.BackSide} transparent depthWrite={false} depthTest={false} blending={THREE.NormalBlending} />
+  </mesh>;
 }
 
-function GpuSemanticParticles({
-  clusters,
-  quality,
-}: {
-  clusters: SemanticCluster[];
-  quality: GraphicsQuality;
-}) {
-  const materialRef = useRef<THREE.ShaderMaterial>(null);
+function OrbitingStars({ cluster, quality, visibility }: { cluster: SemanticCluster; quality: GraphicsQuality; visibility: number }) {
+  const material = useRef<THREE.ShaderMaterial>(null);
   const { gl } = useThree();
-  const buffers = useMemo(() => {
-    const particlesPerPaper = quality === 'research' ? 68 : 34;
-    const total = clusters.reduce(
-      (sum, cluster) => sum + Math.max(72, cluster.paperCount * particlesPerPaper),
-      0,
-    );
-    const positions = new Float32Array(total * 3);
-    const centers = new Float32Array(total * 3);
-    const colors = new Float32Array(total * 3);
-    const phases = new Float32Array(total);
-    const speeds = new Float32Array(total);
-    const sizes = new Float32Array(total);
-
-    let cursor = 0;
-    clusters.forEach((cluster) => {
-      const count = Math.max(72, cluster.paperCount * particlesPerPaper);
-      const baseColor = new THREE.Color(cluster.color);
-      for (let i = 0; i < count; i++, cursor++) {
-        const seed = (cluster.id + 1) * 100003 + i * 17;
-        const theta = seededUnit(seed + 1) * Math.PI * 2;
-        const phi = Math.acos(2 * seededUnit(seed + 2) - 1);
-        const radial = Math.pow(seededUnit(seed + 3), 0.58) * cluster.radius * 1.7;
-        const flatten = 0.48 + seededUnit(seed + 4) * 0.34;
-        const x = Math.sin(phi) * Math.cos(theta) * radial;
-        const y = Math.cos(phi) * radial * flatten;
-        const z = Math.sin(phi) * Math.sin(theta) * radial;
-        const p3 = cursor * 3;
-        positions[p3] = cluster.center[0] + x;
-        positions[p3 + 1] = cluster.center[1] + y;
-        positions[p3 + 2] = cluster.center[2] + z;
-        centers[p3] = cluster.center[0];
-        centers[p3 + 1] = cluster.center[1];
-        centers[p3 + 2] = cluster.center[2];
-
-        const particleColor = baseColor
-          .clone()
-          .offsetHSL((seededUnit(seed + 5) - 0.5) * 0.07, 0.02, seededUnit(seed + 6) * 0.28);
-        colors[p3] = particleColor.r;
-        colors[p3 + 1] = particleColor.g;
-        colors[p3 + 2] = particleColor.b;
-        phases[cursor] = seededUnit(seed + 7) * Math.PI * 2;
-        speeds[cursor] = 0.35 + seededUnit(seed + 8) * 0.85;
-        sizes[cursor] = 0.8 + seededUnit(seed + 9) * 1.65;
-      }
-    });
-
-    return { positions, centers, colors, phases, speeds, sizes };
-  }, [clusters, quality]);
-
-  const uniforms = useMemo(
-    () => ({
-      uTime: { value: 0 },
-      uPixelRatio: { value: Math.min(2, gl.getPixelRatio()) },
-    }),
-    [gl],
-  );
-
-  useFrame(({ clock }) => {
-    if (!materialRef.current) return;
-    materialRef.current.uniforms.uTime.value = clock.elapsedTime;
+  const buffers = useMemo(() => createPeripheralStars(cluster.id,cluster.paperCount,quality==='research'),[cluster.id,cluster.paperCount,quality]);
+  const uniforms = useMemo(() => ({
+    uTime:{value:0},uPixelRatio:{value:1},uVisibility:{value:visibility},
+    uColor:{value:new THREE.Color(cluster.color).lerp(new THREE.Color('#c7ddf5'),0.45)},
+  }),[cluster.color]);
+  useFrame(({ clock },delta) => {
+    if (!material.current) return;
+    material.current.uniforms.uTime.value=clock.elapsedTime;
+    material.current.uniforms.uPixelRatio.value=Math.min(1.75,gl.getPixelRatio());
+    material.current.uniforms.uVisibility.value=THREE.MathUtils.damp(material.current.uniforms.uVisibility.value,visibility,3,delta);
   });
-
-  if (buffers.positions.length === 0) return null;
-
-  return (
-    <points frustumCulled={false} renderOrder={-1}>
-      <bufferGeometry>
-        <bufferAttribute attach="attributes-position" args={[buffers.positions, 3]} />
-        <bufferAttribute attach="attributes-aCenter" args={[buffers.centers, 3]} />
-        <bufferAttribute attach="attributes-aColor" args={[buffers.colors, 3]} />
-        <bufferAttribute attach="attributes-aPhase" args={[buffers.phases, 1]} />
-        <bufferAttribute attach="attributes-aSpeed" args={[buffers.speeds, 1]} />
-        <bufferAttribute attach="attributes-aSize" args={[buffers.sizes, 1]} />
-      </bufferGeometry>
-      <shaderMaterial
-        ref={materialRef}
-        uniforms={uniforms}
-        vertexShader={PARTICLE_VERTEX_SHADER}
-        fragmentShader={PARTICLE_FRAGMENT_SHADER}
-        transparent
-        depthWrite={false}
-        blending={THREE.AdditiveBlending}
-        toneMapped={false}
-      />
-    </points>
-  );
+  return <points position={cluster.center} rotation={[0,0,cluster.angle]} scale={cluster.axes} frustumCulled={false} renderOrder={-1} raycast={() => null}>
+    <bufferGeometry>
+      <bufferAttribute attach="attributes-position" args={[buffers.positions,3]} />
+      <bufferAttribute attach="attributes-aPhase" args={[buffers.phases,1]} />
+      <bufferAttribute attach="attributes-aSpeed" args={[buffers.speeds,1]} />
+      <bufferAttribute attach="attributes-aSize" args={[buffers.sizes,1]} />
+    </bufferGeometry>
+    <shaderMaterial ref={material} uniforms={uniforms} vertexShader={PARTICLE_VERTEX_SHADER} fragmentShader={PARTICLE_FRAGMENT_SHADER}
+      transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
+  </points>;
 }
 
-export function SemanticNebulaField({
-  clusters,
-  quality,
-}: {
-  clusters: SemanticCluster[];
-  quality: GraphicsQuality;
-}) {
-  return (
-    <group>
-      {clusters.map((cluster) => (
-        <RayMarchedCluster key={cluster.id} cluster={cluster} quality={quality} />
-      ))}
-      <GpuSemanticParticles clusters={clusters} quality={quality} />
-    </group>
-  );
+export function SemanticNebulaField({ clusters, quality, focusedCluster }: { clusters: SemanticCluster[]; quality: GraphicsQuality; focusedCluster?: number }) {
+  return <group>{clusters.map(cluster => {
+    const visibility = focusedCluster === undefined || focusedCluster === cluster.id ? 1 : 0.24;
+    return <group key={cluster.id}>
+      <Cloud cluster={cluster} quality={quality} visibility={visibility} />
+      <OrbitingStars cluster={cluster} quality={quality} visibility={visibility} />
+    </group>;
+  })}</group>;
 }

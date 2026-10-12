@@ -12,6 +12,18 @@ export function fileUrl(paperId: string): string {
   return `${backendBaseUrl}/files/${paperId}.pdf`;
 }
 
+export async function backendIsConnected(): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 4000);
+  try {
+    const response = await fetch(apiUrl('/api/health'), { signal: controller.signal, cache: 'no-store' });
+    if (!response.ok) return false;
+    const health = await response.json();
+    return health.ok === true && health.app === 'PDF_GalaxAI';
+  } catch { return false; }
+  finally { window.clearTimeout(timeout); }
+}
+
 export async function fetchGraph(): Promise<GraphResponse> {
   if (
     typeof window !== 'undefined'

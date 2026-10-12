@@ -9,6 +9,7 @@ import ModelPicker from './ModelPicker';
 import PaperDetail from './PaperDetail';
 import ReaderModal from './ReaderModal';
 import type { Edge, Paper } from '../types/scholar';
+import { citationPaperIds, type GalaxyView, type QueryVisual } from '../rendering/galaxyModel';
 
 const LLM_PROVIDER_STORAGE_KEY = 'scholar:llm-provider';
 const ASSISTANT_MODE_STORAGE_KEY = 'scholar:assistant-mode';
@@ -78,6 +79,14 @@ export function App() {
   const [papers, setPapers] = useState<Paper[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [selectedPaper, setSelectedPaper] = useState<Paper | null>(null);
+  const [galaxyView, setGalaxyView] = useState<GalaxyView>({ level: 'overview' });
+  const [queryVisual, setQueryVisual] = useState<QueryVisual>({ phase: 'idle', paperIds: [], sequence: 0 });
+  const [previewCitationId, setPreviewCitationId] = useState<string | null>(null);
+  const [latestCitationDetails, setLatestCitationDetails] = useState<CiteDetail[]>([]);
+  const pendingCitation = useRef<CiteDetail | null>(null);
+  const [chatCollapsed, setChatCollapsed] = useState(() => {
+    try { return localStorage.getItem('scholar:chat-collapsed') === '1'; } catch { return false; }
+  });
   const [readerPaper, setReaderPaper] = useState<Paper | null>(null);
   const [searchText, setSearchText] = useState('');
   const [highlightedSearchPaperId, setHighlightedSearchPaperId] = useState<string | null>(null);
@@ -85,8 +94,8 @@ export function App() {
   const [chat, setChat] = useState<ChatMsg[]>([
     {
       role: 'ai',
-      text: '欢迎进入本地 Scholar 星系。请上传 PDF 文献以生成你的专属知识星云。',
-      textEn: 'Welcome to your local Scholar Galaxy. Upload PDF papers to generate a personal knowledge nebula.',
+      text: '欢迎来到 GalaxAI 知识观测站。上传 PDF，探索研究主题，并沿问答引用回到原文。',
+      textEn: 'Welcome to the GalaxAI Knowledge Observatory. Upload PDFs, explore research topics, and follow answer citations back to the original papers.',
     },
   ]);
   const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
@@ -146,6 +155,51 @@ export function App() {
 
   const htmlPortalTargetRef = useRef<HTMLDivElement>(null);
 
+  const toggleChat = () => setChatCollapsed(current => {
+    try { localStorage.setItem('scholar:chat-collapsed', current ? '0' : '1'); } catch {}
+    return !current;
+  });
+
+  const clearSources = () => {
+    setActiveHighlights([]);
+    setPreviewCitationId(null);
+    setQueryVisual(current => ({ ...current, phase: 'idle', paperIds: [] }));
+  };
+
+  const changeGalaxyView = (view: GalaxyView) => {
+    pendingCitation.current = null;
+    setGalaxyView(view);
+    setSelectedPaper(null);
+    setSelectedPaperScreenPosition(null);
+    setHighlightedSearchPaperId(null);
+    setPreviewCitationId(null);
+  };
+
+  const selectGalaxyPaper = (paper: Paper, _screenPos?: { x: number; y: number }) => {
+    pendingCitation.current = null;
+    setSelectedPaper(paper);
+    setSelectedPaperScreenPosition(null);
+    setHighlightedSearchPaperId(null);
+    setGalaxyView({ level: 'paper', clusterId: paper.cluster, paperId: paper.id });
+  };
+
+  const onNavigationSettled = (paperId?: string, screenPos?: { x: number; y: number }) => {
+    if (paperId && screenPos) setSelectedPaperScreenPosition(screenPos);
+    const hit = pendingCitation.current;
+    if (!hit || hit.paper_id !== paperId) return;
+    pendingCitation.current = null;
+    const paper = papers.find(p => p.id === paperId);
+    if (!paper) return;
+    setReaderHighlightText((hit.snippet || '').trim());
+    setReaderHighlightPage(hit.page && hit.page > 0 ? hit.page : null);
+    setReaderPaper(paper);
+  };
+
+  const onNavigationInterrupted = () => {
+    pendingCitation.current = null;
+    if (selectedPaper) setSelectedPaperScreenPosition({ x: window.innerWidth * 0.45, y: window.innerHeight * 0.35 });
+  };
+
   useEffect(() => {
     // Some logic if needed
   }, []);
@@ -176,11 +230,7 @@ export function App() {
     refreshGraph(true);
   }, []);
 
-  useEffect(() => {
-    if (activeHighlights.length === 0) return;
-    const t = window.setTimeout(() => setActiveHighlights([]), 12000);
-    return () => window.clearTimeout(t);
-  }, [activeHighlights]);
+  // Citation highlights persist until the next question or an explicit clear.
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -190,6 +240,9 @@ export function App() {
     setLoading(true);
     try {
       // Clear states before upload
+      pendingCitation.current = null;
+      setGalaxyView({ level: 'overview' });
+      clearSources();
       setSelectedPaper(null);
       setSelectedPaperScreenPosition(null);
       setActiveHighlights([]);
@@ -249,7 +302,7 @@ export function App() {
   };
 
   const handleSend = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || loading) return;
     const userVisibleMsg = input;
     setInput('');
 
@@ -276,6 +329,8 @@ export function App() {
       },
     ]);
     setActiveHighlights([]);
+    setPreviewCitationId(null);
+    setQueryVisual(current => ({ phase: 'waiting', paperIds: [], sequence: current.sequence + 1 }));
     setAttachedPapers([]);
     setLoading(true);
 
@@ -296,11 +351,7 @@ export function App() {
       const answerRaw = res.answer || tr('AI 未返回内容', 'The AI returned no content.');
       const answer = normalizeAnswerText(answerRaw, citeDetails);
       // 兼容两种引用格式：后端返回的 cites 数组 或 文本中的 [CITE:id] 标记
-      const cites = (
-        res.cites?.map((c) => (typeof c === 'string' ? c : c?.paper_id || '')) ||
-        answer.match(/\[CITE:(\w+)\]/g)?.map((c) => c.replace('[CITE:', '').replace(']', '')) ||
-        []
-      ).filter(Boolean);
+      const cites = citationPaperIds(res);
         
       const pu = res.provider_used || '';
       const providerTag =
@@ -323,8 +374,11 @@ export function App() {
         },
       ]);
       setActiveHighlights(cites);
+      setLatestCitationDetails(citeDetails);
+      setQueryVisual(current => ({ phase: 'sources', paperIds: cites, sequence: current.sequence + 1 }));
     } catch (err) {
       console.error(err);
+      setQueryVisual(current => ({ ...current, phase: 'error', paperIds: [] }));
       setChat((prev) => [...prev, {
         role: 'ai',
         text: '❌ 检索失败：请检查后端连接或 API Key 配置。',
@@ -357,11 +411,7 @@ export function App() {
   })();
 
   const handleSearchSelect = (p: Paper) => {
-    setSelectedPaper(p);
-    setSelectedPaperScreenPosition({
-      x: Math.max(120, window.innerWidth * 0.42),
-      y: Math.max(90, window.innerHeight * 0.25),
-    });
+    selectGalaxyPaper(p);
     setHighlightedSearchPaperId(p.id);
     // clear search input to hide dropdown
     setSearchText('');
@@ -391,6 +441,8 @@ export function App() {
 
     try {
       // Optimistically update UI first
+      pendingCitation.current = null;
+      setGalaxyView({ level: 'overview' });
       setSelectedPaper(null);
       setSelectedPaperScreenPosition(null);
       setActiveHighlights((prev) => prev.filter((id) => id !== paper.id));
@@ -464,17 +516,17 @@ export function App() {
     const cid = hit.paper_id;
     const citedPaper = papers.find((x) => x.id === cid) || null;
     setSelectedPaper(citedPaper);
+    setPreviewCitationId(null);
     setHighlightedSearchPaperId(null);
-    setActiveHighlights([cid]);
+    setActiveHighlights(current => [...new Set([...current, cid])]);
     if (citedPaper) {
-      setSelectedPaperScreenPosition({
-        x: Math.max(120, window.innerWidth * 0.42),
-        y: Math.max(90, window.innerHeight * 0.25),
-      });
-      setReaderHighlightText((hit?.snippet || '').trim());
-      setReaderHighlightPage((hit?.page && hit.page > 0) ? hit.page : null);
-      setReaderPaper(citedPaper);
+      // The renderer reports arrival; no guessed timer can open the wrong PDF.
+      pendingCitation.current = hit;
+      setReaderPaper(null);
+      setSelectedPaperScreenPosition(null);
+      setGalaxyView({ level: 'paper', clusterId: citedPaper.cluster, paperId: citedPaper.id });
     } else {
+      pendingCitation.current = null;
       setSelectedPaperScreenPosition(null);
     }
   };
@@ -482,7 +534,7 @@ export function App() {
   return (
     <div className="flex h-screen w-full bg-[#020617] text-white overflow-hidden font-sans">
       {/* 左侧功能栏 */}
-      <nav className="w-16 border-r border-white/10 flex flex-col items-center py-6 gap-8 glass z-50">
+      <nav className="w-16 shrink-0 border-r border-white/[0.06] bg-[#050a13] flex flex-col items-center py-6 gap-8 z-50">
         <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center shadow-lg shadow-indigo-500/20">
           <Zap className="w-5 h-5" />
         </div>
@@ -497,6 +549,8 @@ export function App() {
         </button>
         <button
           onClick={() => {
+            changeGalaxyView({ level: 'overview' });
+            clearSources();
             setSelectedPaper(null);
             setSelectedPaperScreenPosition(null);
             setHighlightedSearchPaperId(null);
@@ -565,20 +619,24 @@ export function App() {
       <GalaxyArea
         papers={papers}
         edges={edges}
-        onSelect={(p, screenPos) => {
-          setSelectedPaper(p);
-          setSelectedPaperScreenPosition(screenPos);
-          setHighlightedSearchPaperId(null);
-        }}
+        onSelect={selectGalaxyPaper}
         onRequestAddToChat={handleAddPaperToChat}
-        highlights={activeHighlights}
+        highlights={[...activeHighlights, ...(highlightedSearchPaperId ? [highlightedSearchPaperId] : [])]}
         hideLabels={!!readerPaper}
         searchText={searchText}
         setSearchText={setSearchText}
         results={searchResults}
         onResultClick={handleSearchSelect}
-        focusTarget={selectedPaper}
-        highlightedSearchPaperId={highlightedSearchPaperId}
+        view={galaxyView}
+        onViewChange={changeGalaxyView}
+        queryVisual={queryVisual}
+        previewCitationId={previewCitationId}
+        onCitationSelect={paperId => openCitation(latestCitationDetails.find(hit => hit.paper_id === paperId) || { paper_id: paperId })}
+        onClearSources={clearSources}
+        onNavigationSettled={onNavigationSettled}
+        onNavigationInterrupted={onNavigationInterrupted}
+        chatCollapsed={chatCollapsed}
+        onToggleChat={toggleChat}
         htmlPortalTargetRef={htmlPortalTargetRef}
       />
 
@@ -588,8 +646,7 @@ export function App() {
           selectedPaper={selectedPaper}
           edges={edges}
           onClose={() => {
-            setSelectedPaper(null);
-            setSelectedPaperScreenPosition(null);
+            changeGalaxyView({ level: 'cluster', clusterId: selectedPaper.cluster });
           }}
           onOpenReader={(p) => {
             setReaderHighlightText('');
@@ -618,7 +675,7 @@ export function App() {
             );
           }}
           screenPosition={selectedPaperScreenPosition}
-          aiChatWidth={420}
+          aiChatWidth={chatCollapsed ? 0 : 380}
           llmProvider={llmProvider}
         />
       )}
@@ -640,12 +697,13 @@ export function App() {
       )}
 
       {/* 右侧 AI 终端 */}
-      <aside className="w-[420px] border-l border-white/10 glass flex flex-col z-50">
-        <div className="p-6 border-b border-white/10 bg-white/5 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 font-bold tracking-tight">
+      {!chatCollapsed && <aside className="w-[380px] shrink-0 border-l border-white/[0.07] bg-[#080e19] flex flex-col z-50">
+        <div className="p-4 border-b border-white/10 bg-white/[0.02] flex flex-wrap items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-sm font-medium tracking-tight">
             <Sparkles className="w-4 h-4 text-yellow-400" /> {tr('本地检索终端', 'Local Retrieval Console')}
           </h2>
           <div className="flex items-center gap-2">
+            <button type="button" onClick={toggleChat} className="text-slate-500 hover:text-white" title={tr('收起问答面板', 'Hide Q&A panel')} aria-label={tr('收起问答面板', 'Hide Q&A panel')}><X className="h-3.5 w-3.5" /></button>
             <IndexAdmin />
             <ModelPicker
               currentProviderId={llmProvider}
@@ -655,7 +713,7 @@ export function App() {
         </div>
 
         {/* 模式切换条 */}
-        <div className="px-6 pt-3 pb-2 border-b border-white/10 flex items-center justify-between gap-2">
+        <div className="px-4 pt-3 pb-2 border-b border-white/10 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-1 p-1 rounded-full bg-white/5 border border-white/10">
             {([
               { id: 'auto', label: tr('自适应', 'Adaptive'), icon: Sparkles, hint: tr('根据提问自动判断是否检索文献', 'Automatically decide whether to retrieve papers') },
@@ -734,6 +792,10 @@ export function App() {
                                       key={`${i}-block-${blockIdx}-ref-${refIdx}`}
                                       type="button"
                                       onClick={() => openCitation(hit)}
+                                      onMouseEnter={() => setPreviewCitationId(hit.paper_id)}
+                                      onMouseLeave={() => setPreviewCitationId(null)}
+                                      onFocus={() => setPreviewCitationId(hit.paper_id)}
+                                      onBlur={() => setPreviewCitationId(null)}
                                       className="inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-slate-500/35 bg-slate-700/35 px-1.5 text-[10px] text-slate-200 hover:bg-slate-600/50 transition-colors"
                                       title={snippet || tr('点击定位到引用原文', 'Open the cited passage')}
                                     >
@@ -784,6 +846,10 @@ export function App() {
                             <button
                               key={`${cid}-${hit.chunk_id || idx}`}
                               onClick={() => openCitation(hit)}
+                              onMouseEnter={() => setPreviewCitationId(hit.paper_id)}
+                              onMouseLeave={() => setPreviewCitationId(null)}
+                              onFocus={() => setPreviewCitationId(hit.paper_id)}
+                              onBlur={() => setPreviewCitationId(null)}
                               className="text-left text-[11px] p-2 rounded-lg border transition-all hover:brightness-110"
                               style={{
                                 color: citeColor,
@@ -883,9 +949,9 @@ export function App() {
               <Send className="w-4 h-4 text-white" />
             </button>
           </div>
-          <p className="text-[10px] text-slate-500 mt-3 text-center opacity-50 uppercase tracking-widest">ScholarAI Neural Core v4.0.2</p>
+          <p className="text-[9px] text-slate-600 mt-3 text-center uppercase tracking-[0.2em]">GalaxAI · Evidence Observatory</p>
         </div>
-      </aside>
+      </aside>}
     </div>
   );
 }

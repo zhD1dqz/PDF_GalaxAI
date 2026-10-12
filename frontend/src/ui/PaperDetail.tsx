@@ -141,9 +141,9 @@ export default function PaperDetail({ selectedPaper, edges, onClose, onOpenReade
 
   useEffect(() => {
     const calculatePosition = () => {
-      const panelWidth = 420;
+      const panelWidth = 360;
       // More accurate height calculation based on component structure
-      const panelHeight = 400; // Increased from 300 to account for actual content
+      const panelHeight = Math.min(430, Math.max(220, window.innerHeight - 180));
       const aiChatWidthLocal = aiChatWidth;
       const padding = 10;
 
@@ -192,13 +192,14 @@ export default function PaperDetail({ selectedPaper, edges, onClose, onOpenReade
         borderColor: selectedPaper.color,
         left: finalLeft,
         top: finalTop,
+        maxHeight: panelHeight,
       });
     };
 
     calculatePosition();
     window.addEventListener('resize', calculatePosition);
     return () => window.removeEventListener('resize', calculatePosition);
-  }, [screenPosition, selectedPaper.color]);
+  }, [screenPosition, selectedPaper.color, aiChatWidth]);
 
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
@@ -208,8 +209,8 @@ export default function PaperDetail({ selectedPaper, edges, onClose, onOpenReade
       const newTop = e.clientY - dragOffset.y;
 
       // Apply boundary checks to the new position
-      const panelWidth = 420;
-      const panelHeight = 300;
+      const panelWidth = 360;
+      const panelHeight = Math.min(430, Math.max(220, window.innerHeight - 180));
       const aiChatWidthLocal = aiChatWidth;
       const padding = 10;
       const windowWidth = window.innerWidth;
@@ -242,7 +243,7 @@ export default function PaperDetail({ selectedPaper, edges, onClose, onOpenReade
   }, [isDragging, dragOffset, aiChatWidth]);
   return (
     <div
-      className="absolute w-[420px] glass rounded-2xl p-6 border-l-4 animate-in fade-in slide-in-from-left-4 z-40 flex flex-col gap-4 shadow-2xl shadow-black/50"
+      className="absolute w-[360px] max-h-[calc(100vh-180px)] overflow-y-auto glass rounded-2xl p-5 border-l-2 animate-in fade-in slide-in-from-left-4 z-40 flex flex-col gap-4 shadow-2xl shadow-black/50"
       style={{ ...panelStyle, cursor: isDragging ? 'grabbing' : 'grab' }}
       onMouseDown={(e) => {
         setIsDragging(true);
