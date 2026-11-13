@@ -1,6 +1,7 @@
 @echo off
 setlocal
 :: Always run from the project directory, including when opened via a shortcut.
+:: Keep this window open; closing it stops the session's frontend and backend.
 pushd "%~dp0"
 if errorlevel 1 exit /b 1
 where node >nul 2>nul

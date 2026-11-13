@@ -163,7 +163,7 @@ npm run dev
 
 Open `http://localhost:3000/`, or use the address printed by Vite if it chooses another available port. Check `http://127.0.0.1:8000/api/health` to confirm that the backend responds. API documentation is available at `http://127.0.0.1:8000/docs`.
 
-After installing dependencies, Windows users can double-click `PDF_GalaxAI.cmd`. It prefers the project virtual environment, starts the backend, waits for readiness, starts/reuses the frontend, verifies its API proxy, and opens the real library. Repeated launches reuse this project's services; unrelated occupied ports are reported without stopping other processes. Logs are kept under `logs/`.
+After installing dependencies, Windows users can double-click `PDF_GalaxAI.cmd`. It prefers the project virtual environment, starts the backend, waits for readiness, starts the frontend, verifies its API proxy, and opens the real library. **Keep the launcher window open while using the application. Closing that window stops its frontend and backend and releases their ports.** On Windows a kill-on-close Job Object also contains descendant processes. A second launcher does not take over an existing session; occupied ports are reported without stopping other programs or project copies. Logs are kept under `logs/`.
 
 ### 4. Check your first document workflow
 
@@ -173,7 +173,7 @@ After installing dependencies, Windows users can double-click `PDF_GalaxAI.cmd`.
 4. Review retrieved source snippets and follow a citation into the PDF reader. Page matching is heuristic, so check the original text yourself.
 5. If the application reports an embedding-model mismatch, rebuild the vector index using the interface control. New uploads normally use incremental indexing.
 
-For the manual two-terminal setup, press **Ctrl+C** in each terminal. Launcher-created services run in the background; closing the launcher does not stop them. Their specific PIDs are recorded in `logs/launcher-processes.json` for inspection in Task Manager. Reused manually started services still belong to their original terminal. PDFs and indexes remain in `backend/data/`.
+For the launcher, close its command window or press **Ctrl+C** to stop both services. Closing only the webpage does not stop them; no browser-close shutdown is enabled. With `npm start`, keep that terminal open as the session owner. For the manual two-terminal setup, press **Ctrl+C** in each terminal separately. Service ownership is recorded in `logs/launcher-processes.json`; old background instances from previous versions must be stopped before using the new launcher. Stopping a session does not delete PDFs or indexes from `backend/data/`. Finish uploads or parsing before closing the window, since a hard window close can interrupt active work.
 
 ### Optional parsing tools
 
@@ -257,7 +257,7 @@ The recovery script imports local PDFs, recomputes the layout and preserves unav
 | `node`, `npm`, `python` or `python3` is not found | Install the required runtime, check PATH and open a new terminal. Use the correct Python command for your platform. |
 | Python reports a missing module | Install `backend/requirements.txt` with the same `.venv` Python executable used to start the backend. |
 | The page reports that the backend is unavailable | For manual startup, keep terminal A running; for the Windows launcher, inspect `logs/`. Check `http://127.0.0.1:8000/api/health` and the canvas connection indicator. The Vite proxy expects the backend on port 8000. |
-| The launcher reports an occupied port | Identify the program using port 3000 or 8000 and resolve the conflict yourself. The launcher reuses this project's services but does not stop unrelated programs. |
+| The launcher reports an occupied port or another session | Close the earlier launcher's window first. Older background versions may need to be stopped in Task Manager after verifying their PIDs. The new launcher does not adopt existing services or stop another program/project copy. |
 | The galaxy is empty after startup | Upload your own PDFs. Downloaded source does not include the screenshot's document collection. For synthetic examples, use `npm run demo`. |
 | The first startup or upload appears slow | Check the backend log for embedding-model downloads or PDF processing. Model weights are not bundled with the source. |
 | Q&A fails or has no source evidence | Verify the selected provider's connection and model availability. Upload relevant PDFs and resolve any embedding-index warning. General Chat mode does not retrieve document evidence. |
@@ -279,9 +279,11 @@ npm run build
 python tests/test_layout_recovery.py
 ```
 
-The regression checks cover graphics data and layout logic, halo falloff, independent star drift, launcher readiness and service reuse, model path resolution, import deduplication and configurable topic counts. They do not require downloaded model weights or user PDFs. Logic checks do not replace browser shader compilation, visual review or GPU performance benchmarks.
+The regression checks cover graphics data and layout logic, halo falloff, independent star drift, launcher readiness and session ownership, model path resolution, import deduplication and configurable topic counts. Windows launcher tests also verify that losing the launcher, closing its control pipe, or killing its supervisor reaps simulated frontend/backend descendants without stopping an unrelated server. They do not require downloaded model weights or user PDFs. Logic checks do not replace browser shader compilation, visual review or GPU performance benchmarks.
 
 `tests/verify_live_library.py` is an optional integration check for the local 24-PDF test library, with both services running. See [test data](docs/TEST_DATA.md).
+
+On Windows, `node tests/verify_launcher_lifecycle.mjs` is an optional real-library startup/exit check. It requires free ports 3000 and 8000, starts two successive launcher sessions without a browser, forcibly closes each test-owned launcher, and checks that both ports are released and saved paper coordinates remain unchanged. It never stops pre-existing services.
 
 To create a clean source archive:
 
